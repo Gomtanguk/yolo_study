@@ -127,27 +127,80 @@ function parseStyles(doc, theme) {
   return { fonts: fonts.length ? fonts : empty.fonts, fills, borders, xfs: xfs.length ? xfs : empty.xfs, numFmts };
 }
 function fmtCode(book, s) { const id = (book.styles.xfs[s] || {}).numFmtId || 0; return { id, code: book.styles.numFmts[id] || BUILTIN_FMT[id] || 'General' }; }
-function serialToText(v, code) {
-  const d = new Date(Math.round((v - 25569) * 86400000));
-  const p = n => String(n).padStart(2, '0');
-  const date = `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
-  const time = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
-  const c = code.replace(/"[^"]*"/g, '');
-  const hasDate = /[yd]/i.test(c) || (/m/i.test(c) && !/h/i.test(c)), hasTime = /h|s/i.test(c);
-  return hasDate && hasTime ? `${date} ${time}` : hasTime ? time : date;
+function splitSections(code) {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < code.length; i++) { const ch = code[i];
+    if (ch === '"') q = !q; if (ch === '\\' && !q) { cur += ch + (code[++i] || ''); continue; }
+    if (ch === ';' && !q) { out.push(cur); cur = ''; } else cur += ch; }
+  out.push(cur); return out;
+}
+function generalNum(v) { return Number.isInteger(v) ? String(v) : String(+v.toPrecision(11)); }
+const WEEK_KO = '일월화수목금토', WEEK_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MON_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function formatDate(v, sec) {
+  const d = new Date(Math.round((v - 25569) * 86400000)); const p2 = n => String(n).padStart(2, '0');
+  const toks = sec.replace(/\[[^\]]*\]/g, '').match(/"[^"]*"|\\.|yyyy|yy|mmmmm|mmmm|mmm|mm|m|dddd|ddd|dd|d|aaaa|aaa|hh|h|ss|s|AM\/PM|am\/pm|A\/P|a\/p|[eE]|_.|\*.|[\s\S]/g) || [];
+  const isH = t => /^h/i.test(t), isS = t => /^s/i.test(t), ampm = toks.some(t => /^(am\/pm|a\/p)$/i.test(t));
+  let out = '';
+  toks.forEach((t, i) => {
+    const prev = toks.slice(0, i).reverse().find(x => /^[a-z]/i.test(x) && !/^(am\/pm|a\/p)$/i.test(x));
+    const next = toks.slice(i + 1).find(x => /^[a-z]/i.test(x) && !/^(am\/pm|a\/p)$/i.test(x));
+    const lt = t.toLowerCase(); const H = d.getUTCHours(), h12 = H % 12 || 12;
+    if (t[0] === '"') out += t.slice(1, -1); else if (t[0] === '\\') out += t[1]; else if (t[0] === '_') out += ' '; else if (t[0] === '*') out += '';
+    else if (lt === 'yyyy' || lt === 'e') out += d.getUTCFullYear(); else if (lt === 'yy') out += p2(d.getUTCFullYear() % 100);
+    else if (lt === 'mmmmm') out += MON_EN[d.getUTCMonth()][0]; else if (lt === 'mmmm' || lt === 'mmm') out += MON_EN[d.getUTCMonth()];
+    else if (lt === 'mm' || lt === 'm') { const minute = (prev && isH(prev)) || (next && isS(next)); out += minute ? (lt === 'mm' ? p2(d.getUTCMinutes()) : d.getUTCMinutes()) : (lt === 'mm' ? p2(d.getUTCMonth() + 1) : d.getUTCMonth() + 1); }
+    else if (lt === 'dddd' || lt === 'ddd') out += WEEK_EN[d.getUTCDay()]; else if (lt === 'dd') out += p2(d.getUTCDate()); else if (lt === 'd') out += d.getUTCDate();
+    else if (lt === 'aaaa') out += WEEK_KO[d.getUTCDay()] + '요일'; else if (lt === 'aaa') out += WEEK_KO[d.getUTCDay()];
+    else if (lt === 'hh') out += p2(ampm ? h12 : H); else if (lt === 'h') out += ampm ? h12 : H;
+    else if (lt === 'ss') out += p2(d.getUTCSeconds()); else if (lt === 's') out += d.getUTCSeconds();
+    else if (lt === 'am/pm') out += H < 12 ? 'AM' : 'PM'; else if (lt === 'a/p') out += H < 12 ? 'A' : 'P';
+    else out += t;
+  });
+  return out;
+}
+function formatNumber(v, sec, negSection) {
+  sec = sec.replace(/\[[^\]]*\]/g, '');
+  if (/^\s*general\s*$/i.test(sec)) return (v < 0 && !negSection ? '-' : '') + generalNum(Math.abs(v));
+  const toks = sec.match(/"[^"]*"|\\.|_.|\*.|[#0?][#0?,]*(?:\.[#0?]*)?|\.[#0?]+|[\s\S]/g) || [];
+  let lit = (t) => t[0] === '"' ? t.slice(1, -1) : t[0] === '\\' ? t[1] : t[0] === '_' ? ' ' : t[0] === '*' ? '' : t;
+  const pct = toks.some(t => t === '%'); let x = Math.abs(v) * (pct ? 100 : 1);
+  const sci = toks.findIndex(t => /^E[+-]?$/i.test(t));
+  let out = '', done = false;
+  for (const t of toks) {
+    if (!done && /^[#0?.]/.test(t) && /[#0?]/.test(t)) {
+      done = true;
+      const [ip, fp = ''] = t.split('.'); const dec = (fp.match(/[0#?]/g) || []).length, minDec = (fp.match(/0/g) || []).length;
+      let str = x.toFixed(dec);
+      if (dec > minDec) str = str.replace(new RegExp(`0{1,${dec - minDec}}$`), '').replace(/\.$/, '');
+      let [i, f] = str.split('.');
+      if (/,/.test(ip.replace(/,+$/, ''))) i = i.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      if (i === '0' && !/0/.test(ip)) i = '';
+      out += i + (f != null ? '.' + f : (dec && minDec ? '' : ''));
+    } else if (sci >= 0 && /^E/i.test(t)) { /* handled below */ } else out += lit(t);
+  }
+  if (sci >= 0) return (v < 0 ? '-' : '') + x.toExponential(2).toUpperCase();
+  if (!done) out += '';
+  return (v < 0 && !negSection && x !== 0 && /\d/.test(out) ? '-' : '') + out;
 }
 function formatValue(book, cell) {
-  const v = cell.value; if (v == null) return '';
-  if (typeof v !== 'number') return String(v);
-  const { id, code } = fmtCode(book, cell.s);
-  if (isDateFmt(id, code)) return serialToText(v, code);
-  const decM = /\.(0+)/.exec(code), dec = decM ? decM[1].length : null;
-  if (/%/.test(code)) return (v * 100).toFixed(dec || 0) + '%';
-  if (/E\+/i.test(code)) return v.toExponential(dec || 2).toUpperCase();
-  if (/#,##?0/.test(code)) return v.toLocaleString('ko-KR', { minimumFractionDigits: dec || 0, maximumFractionDigits: dec || 0 });
-  if (dec != null) return v.toFixed(dec);
-  if (code.trim() === '0') return String(Math.round(v));
-  return Number.isInteger(v) ? String(v) : String(+v.toPrecision(11));
+  const v = cell.value; if (v == null || v === '') return '';
+  if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
+  let { id, code } = fmtCode(book, cell.s);
+  if (/\[\$-F800\]/i.test(code)) code = 'yyyy"년" m"월" d"일" aaaa';
+  else if (/\[\$-F400\]/i.test(code)) code = 'AM/PM h:mm:ss';
+  if (typeof v !== 'number') {
+    const secs = splitSections(code); const tsec = secs.length >= 4 ? secs[3] : (secs.length === 1 && /@/.test(secs[0]) ? secs[0] : null);
+    if (!tsec) return String(v);
+    return (tsec.match(/"[^"]*"|\\.|_.|\*.|@|[\s\S]/g) || []).map(t => t === '@' ? String(v) : t[0] === '"' ? t.slice(1, -1) : t[0] === '\\' ? t[1] : t[0] === '_' ? ' ' : t[0] === '*' ? '' : t).join('').trim();
+  }
+  try {
+    const secs = splitSections(code);
+    let sec = secs[0], neg = false;
+    if (v < 0 && secs.length > 1 && secs[1] !== '') { sec = secs[1]; neg = true; } else if (v === 0 && secs.length > 2) sec = secs[2];
+    if (isDateFmt(id, sec)) return formatDate(v, BUILTIN_FMT[id] && !book.styles.numFmts[id] ? 'yyyy-mm-dd' + (/h/i.test(BUILTIN_FMT[id]) ? ' hh:mm' : '') : sec);
+    if (/^\s*@\s*$/.test(sec)) return generalNum(v);
+    return formatNumber(v, sec, neg);
+  } catch { return generalNum(v); }
 }
 
 /* ---------- workbook ---------- */
@@ -193,12 +246,68 @@ async function loadSheet(book, name) {
   book.cache.set(name, entry);
   return entry;
 }
+/* ---------- formula text helpers ---------- */
+// Split a formula into string literals / quoted sheet names (left untouched) and code segments.
+function formulaParts(f) { return f.match(/"(?:[^"]|"")*"|'(?:[^']|'')*'|[^"']+/g) || []; }
+function shiftFormula(f, dr, dc) {
+  if (!dr && !dc) return f;
+  const re = /(^|[^A-Za-z0-9_.$])(\$?)([A-Z]{1,3})(\$?)(\d+)(?![\d(A-Za-z_])|(^|[^A-Za-z0-9_.$])(\$?)([A-Z]{1,3}):(\$?)([A-Z]{1,3})(?![\d(A-Za-z_])/g;
+  return formulaParts(f).map(p => /^["']/.test(p) ? p : p.replace(re, (m, pre, ca, col, ra, row, pre2, ca1, col1, ca2, col2) => {
+    if (col !== undefined) {
+      const c = ca ? colIndex(col) : colIndex(col) + dc, r = ra ? +row : +row + dr;
+      return c < 1 || r < 1 ? m : pre + ca + colLetters(c) + ra + r;
+    }
+    const a = ca1 ? colIndex(col1) : colIndex(col1) + dc, b = ca2 ? colIndex(col2) : colIndex(col2) + dc;
+    return pre2 + ca1 + colLetters(a) + ':' + ca2 + colLetters(b);
+  })).join('');
+}
+// Split "NAME(args)" calls so individual arguments can be rewritten.
+function rewriteCalls(f, names, fn) {
+  let out = '', i = 0; const re = new RegExp('\\b(' + names.join('|') + ')\\(', 'gi'); let m;
+  while ((m = re.exec(f))) {
+    let depth = 1, j = m.index + m[0].length, q = null, args = [], start = j;
+    for (; j < f.length && depth; j++) { const ch = f[j];
+      if (q) { if (ch === q) q = null; continue; }
+      if (ch === '"' || ch === "'") q = ch; else if (ch === '(') depth++; else if (ch === ')') { depth--; if (!depth) break; }
+      else if (ch === ',' && depth === 1) { args.push(f.slice(start, j)); start = j + 1; } }
+    if (depth) break;
+    args.push(f.slice(start, j));
+    const inner = args.map(a => rewriteCalls(a, names, fn));
+    out += f.slice(i, m.index) + fn(m[1].toUpperCase(), inner); i = j + 1; re.lastIndex = i;
+  }
+  return out + f.slice(i);
+}
+const SINGLE_REF = /^\s*(?:'(?:[^']|'')+'!|[^\s,()!'"]+!)?\$?[A-Z]{1,3}\$?\d+\s*$/;
+const RANGE_REF = /^\s*((?:'(?:[^']|'')+'!|[^\s,()!'"]+!)?)(\$?)([A-Z]{1,3})(\$?)(\d+):(\$?)([A-Z]{1,3})(\$?)(\d+)\s*$/;
+// Excel treats a blank criterion cell as 0 and silently resizes SUMIF's sum_range; HyperFormula errors on both.
+function excelCompat(f) {
+  return rewriteCalls(f, ['COUNTIF', 'SUMIF', 'AVERAGEIF'], (name, a) => {
+    if (a[1] && SINGLE_REF.test(a[1])) a[1] = `IF(ISBLANK(${a[1].trim()}),0,${a[1].trim()})`;
+    if ((name === 'SUMIF' || name === 'AVERAGEIF') && a[2]) {
+      const c = RANGE_REF.exec(a[0]), sr = RANGE_REF.exec(a[2]);
+      if (c && sr) { const h = +c[9] - +c[5], w = colIndex(c[7]) - colIndex(c[3]);
+        a[2] = `${sr[1]}${sr[2]}${sr[3]}${sr[4]}${sr[5]}:${sr[6]}${colLetters(colIndex(sr[3]) + w)}${sr[8]}${+sr[5] + h}`; }
+    }
+    return `${name}(${a.join(',')})`;
+  });
+}
+// HyperFormula needs quoted sheet names when they are not plain ASCII identifiers, and no _xlfn. prefixes.
+function hfFormula(f) {
+  const quoted = formulaParts(f).map(p => /^["']/.test(p) ? p : p.replace(/_xlfn\.|_xlws\./g, '')
+    .replace(/(^|[,(=+\-*/&^<>:; ])([^\s,()=+\-*/&^<>:;!'"$\d][^\s,()=+\-*/&^<>:;!'"]*)!/g, (m, pre, name) => `${pre}'${name}'!`)).join('');
+  return '=' + excelCompat(quoted);
+}
+
+function visibleStyle(book, s) {
+  if (!s) return false; const xf = book.styles.xfs[s] || {};
+  return !!((book.styles.fills[xf.fillId] || {}).bg || Object.keys(book.styles.borders[xf.borderId] || {}).length);
+}
 function sheetModel(book, doc) {
   const root = doc.documentElement, fmt = kid(root, 'sheetFormatPr');
   const defRowHt = +at(fmt, 'defaultRowHeight') || 15;
   const defColW = at(fmt, 'defaultColWidth') != null ? +at(fmt, 'defaultColWidth') : (+(at(fmt, 'baseColWidth') || 8)) + 0.71;
   const cols = kids(kid(root, 'cols'), 'col').map(c => ({ min: +at(c, 'min'), max: +at(c, 'max'), width: at(c, 'width') != null ? +at(c, 'width') : null, hidden: truthy(at(c, 'hidden')), s: +at(c, 'style') || 0 }));
-  const rows = new Map(), cells = new Map(); let maxR = 0, maxC = 0, ri = 0;
+  const rows = new Map(), cells = new Map(), shared = new Map(); let maxR = 0, maxC = 0, fullR = 0, fullC = 0, ri = 0;
   for (const row of kids(kid(root, 'sheetData'), 'row')) {
     ri = at(row, 'r') ? +at(row, 'r') : ri + 1;
     rows.set(ri, { ht: at(row, 'ht') != null ? +at(row, 'ht') : null, hidden: truthy(at(row, 'hidden')), s: truthy(at(row, 'customFormat')) ? +at(row, 's') || 0 : null });
@@ -209,19 +318,39 @@ function sheetModel(book, doc) {
       let value = null;
       if (t === 's') value = raw != null ? (book.sst[+raw] ?? '') : null;
       else if (t === 'inlineStr') value = richText(kid(c, 'is'));
-      else if (t === 'b') value = raw == null ? null : raw === '1' ? 'TRUE' : 'FALSE';
+      else if (t === 'b') value = raw == null ? null : raw === '1';
       else if (t === 'n') value = raw == null || raw === '' ? null : +raw;
       else value = raw;
-      cells.set(addrOf(ri, ci), { r: ri, c: ci, t, s, value, formula: !!kid(c, 'f') });
-      if ((value != null && value !== '') || s) { maxR = Math.max(maxR, ri); maxC = Math.max(maxC, ci); }
+      const f = kid(c, 'f'); let ftext = null;
+      if (f) {
+        ftext = f.textContent || null;
+        if (at(f, 't') === 'shared') { const si = at(f, 'si');
+          if (ftext) shared.set(si, { text: ftext, r: ri, c: ci }); else { const m = shared.get(si); ftext = m ? shiftFormula(m.text, ri - m.r, ci - m.c) : null; } }
+      }
+      cells.set(addrOf(ri, ci), { r: ri, c: ci, t, s, value, formula: !!f, ftext });
+      fullR = Math.max(fullR, ri); fullC = Math.max(fullC, ci);
+      if ((value != null && value !== '') || ftext || visibleStyle(book, s)) { maxR = Math.max(maxR, ri); maxC = Math.max(maxC, ci); }
     }
   }
   const merges = kids(kid(root, 'mergeCells'), 'mergeCell').map(m => parseRange(at(m, 'ref'))).filter(Boolean);
-  merges.forEach(m => { maxR = Math.max(maxR, m.r2); maxC = Math.max(maxC, m.c2); });
+  merges.forEach(m => { const c = cells.get(addrOf(m.r1, m.c1));
+    if (c && ((c.value != null && c.value !== '') || c.ftext || visibleStyle(book, c.s))) { maxR = Math.max(maxR, m.r2); maxC = Math.max(maxC, m.c2); } });
   const pm = kid(root, 'pageMargins'), ps = kid(root, 'pageSetup'), po = kid(root, 'printOptions');
+  const fitToPage = truthy(at(kid(kid(root, 'sheetPr'), 'pageSetUpPr'), 'fitToPage'));
+  const validations = [];
+  desc(root, 'dataValidation').forEach(dv => {
+    if (at(dv, 'type') !== 'list') return;
+    const f1 = kid(dv, 'formula1'); if (!f1) return;
+    const formula = (kid(f1, 'f') || f1).textContent.trim();
+    const sq = at(dv, 'sqref') || (kid(dv, 'sqref') || {}).textContent || '';
+    const ranges = sq.trim().split(/\s+/).map(parseRange).filter(Boolean);
+    if (formula && ranges.length) validations.push({ formula, ranges });
+  });
   const inch = (n, d) => (pm && at(pm, n) != null ? +at(pm, n) : d) * 25.4;
   return {
-    defRowHt, defColW, cols, rows, cells, merges, maxR, maxC,
+    defRowHt, defColW, cols, rows, cells, merges, maxR, maxC, fullR: Math.max(fullR, maxR), fullC: Math.max(fullC, maxC), validations,
+    scale: at(ps, 'scale') ? +at(ps, 'scale') / 100 : 1,
+    fit: fitToPage ? { w: at(ps, 'fitToWidth') != null ? +at(ps, 'fitToWidth') : 1, h: at(ps, 'fitToHeight') != null ? +at(ps, 'fitToHeight') : 1 } : null,
     margins: { l: inch('left', .7), r: inch('right', .7), t: inch('top', .75), b: inch('bottom', .75) },
     landscape: at(ps, 'orientation') === 'landscape', centerH: truthy(at(po, 'horizontalCentered')),
   };
@@ -243,10 +372,12 @@ function fontStack(name) {
   const safe = String(name || '').replace(/['";{}<>\\]/g, '');
   return (safe && !CJK_FONT.test(safe) ? `'${safe}', ` : '') + `'Noto Sans KR', 'Malgun Gothic', sans-serif`;
 }
+function styleOf(model, r, c) {
+  const cell = model.cells.get(addrOf(r, c)); if (cell) return cell.s;
+  const rowS = (model.rows.get(r) || {}).s; return rowS != null ? rowS : (colDef(model, c) || {}).s || 0;
+}
 function cellCss(book, model, r, c, merge, isNum) {
-  const cell = model.cells.get(addrOf(r, c));
-  const rowS = (model.rows.get(r) || {}).s, colS = (colDef(model, c) || {}).s;
-  const s = cell ? cell.s : (rowS != null ? rowS : colS || 0);
+  const s = styleOf(model, r, c);
   const st = book.styles, xf = st.xfs[s] || st.xfs[0] || {};
   const font = st.fonts[xf.fontId] || st.fonts[0] || {}, fill = st.fills[xf.fillId] || {};
   const css = [`font-size:${((font.sz || 11) * 4 / 3).toFixed(2)}px`, `font-family:${fontStack(font.name)}`];
@@ -288,15 +419,31 @@ function sheetHTML(book, model, opts) {
     for (let c = c1; c <= c2; c++) {
       const a = addrOf(r, c); if (covered.has(a)) continue;
       const m = tops.get(a), cell = model.cells.get(a);
-      const override = opts.overrides && opts.overrides.has(a);
-      const text = override ? opts.overrides.get(a) : cell ? formatValue(book, cell) : '';
-      const isNum = !override && cell && typeof cell.value === 'number';
-      const { css, wrap } = cellCss(book, model, r, c, m, isNum);
+      const val = opts.values && opts.values.has(a) ? opts.values.get(a) : cell ? cell.value : null;
+      const text = formatValue(book, { s: styleOf(model, r, c), value: val });
+      const isNum = typeof val === 'number';
+      const hiddenCol = !colPx(model, c) && !m;
+      let { css, wrap } = cellCss(book, model, r, c, m, isNum);
+      if (hiddenCol) css += ';padding:0;border:none';
+      const override = opts.highlight && opts.highlight.has(a);
+      let spill = 0;
+      const contCenter = ((book.styles.xfs[styleOf(model, r, c)] || {}).h) === 'centerContinuous';
+      if (!m && !wrap && text && (contCenter || (!isNum && !/text-align:(center|right|justify)/.test(css)))) {
+        let w = 0;
+        for (let cc = c + 1; cc <= c2; cc++) {
+          const na = addrOf(r, cc); if (covered.has(na) || tops.has(na)) break;
+          const nc = model.cells.get(na), nv = opts.values && opts.values.has(na) ? opts.values.get(na) : nc ? nc.value : null;
+          if (nv != null && nv !== '') break; w += colPx(model, cc);
+        }
+        if (w) spill = colPx(model, c) + w - 6;
+        if (contCenter && !w) spill = 0;
+      }
       const span = m ? `${m.r2 > m.r1 ? ` rowspan="${Math.min(m.r2, r2) - r + 1}"` : ''}${m.c2 > m.c1 ? ` colspan="${Math.min(m.c2, c2) - c + 1}"` : ''}` : '';
       let height = 0; if (m) for (let rr = r; rr <= Math.min(m.r2, r2); rr++) height += rowPx(model, rr); else height = h;
       const mi = opts.mapped && opts.mapped.get(a);
       const cls = [mi != null && 'mapped', opts.active === a && 'active', override && text !== '' && 'filled'].filter(Boolean).join(' ');
-      html += `<td${span}${cls ? ` class="${cls}"` : ''}${opts.grid ? ` data-act="cell" data-cell="${a}" title="${esc(a)}"` : ''} style="${css}"><div class="xc${wrap ? ' wrap' : ''}" style="max-height:${height}px">${esc(text)}</div>${mi != null ? `<span class="cell-dot">${mi}</span>` : ''}</td>`;
+      const tdCls = [cls, spill && 'ov'].filter(Boolean).join(' ');
+      html += `<td${span}${tdCls ? ` class="${tdCls}"` : ''}${opts.grid ? ` data-act="cell" data-cell="${a}" title="${esc(a)}"` : ''} style="${css}"><div class="xc${wrap ? ' wrap' : ''}${spill ? ' spill' : ''}" style="max-height:${height}px${spill ? `;width:${spill}px` : ''}">${hiddenCol ? '' : esc(text)}</div>${mi != null ? `<span class="cell-dot">${mi}</span>` : ''}</td>`;
     }
     html += '</tr>';
   }
@@ -333,6 +480,11 @@ function writeCell(book, entry, addr, val) {
   const doc = entry.doc, root = doc.documentElement; let sd = kid(root, 'sheetData');
   if (!sd) { sd = mk(doc, root, 'sheetData'); root.appendChild(sd); }
   const { r, c } = parseAddr(addr);
+  if (val.kind === 'clear') { // blank optional field: empty the cell but keep its style
+    const ce = desc(sd, 'c').find(x => at(x, 'r') === addrOf(r, c));
+    if (ce) { while (ce.firstChild) ce.removeChild(ce.firstChild); ['t', 'cm', 'vm'].forEach(a => ce.removeAttribute(a)); book.dirty.add(entry.meta.name); }
+    return;
+  }
   let row = null, before = null, idx = 0;
   for (const rw of kids(sd, 'row')) {
     idx = at(rw, 'r') ? +at(rw, 'r') : idx + 1; if (!at(rw, 'r')) rw.setAttribute('r', idx);
@@ -382,6 +534,95 @@ async function saveBook(book) {
   return book.zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
+/* ---------- formula recalculation (HyperFormula) ---------- */
+const isErr = v => v && typeof v === 'object' && 'value' in v && typeof v.value === 'string' && v.value[0] === '#';
+function hfInput(cell) {
+  if (cell.ftext) return hfFormula(cell.ftext);
+  const v = cell.value;
+  if (v == null) return null;
+  if (typeof v === 'string') return v === '' ? null : "'" + v;
+  return v;
+}
+async function buildCalc(book) {
+  if (!window.HyperFormula) throw Error('수식 엔진(HyperFormula)을 불러오지 못했습니다. 네트워크를 확인하세요.');
+  const entries = []; for (const s of book.sheets) entries.push(await loadSheet(book, s.name));
+  const data = {};
+  for (const e of entries) {
+    const m = e.model, rows = Array.from({ length: Math.max(1, m.fullR) }, () => new Array(Math.max(1, m.fullC)).fill(null));
+    for (const cell of m.cells.values()) rows[cell.r - 1][cell.c - 1] = hfInput(cell);
+    data[e.meta.name] = rows;
+  }
+  const names = desc(book.wbDoc, 'definedName').filter(d => !/^_xlnm\./.test(at(d, 'name')) && at(d, 'localSheetId') == null && !/#REF!/.test(d.textContent))
+    .map(d => ({ name: at(d, 'name'), expression: hfFormula(d.textContent) }));
+  let hf;
+  try { hf = HyperFormula.buildFromSheets(data, { licenseKey: 'gpl-v3', precisionRounding: 10 }, names); }
+  catch { hf = HyperFormula.buildFromSheets(data, { licenseKey: 'gpl-v3', precisionRounding: 10 }); }
+  const ids = Object.fromEntries(entries.map(e => [e.meta.name, hf.getSheetId(e.meta.name)]));
+  const calc = {
+    hf,
+    /** inputs: [{sheet, addr, value}] where value is a number or string */
+    set(inputs) {
+      hf.batch(() => { for (const x of inputs) { const p = parseAddr(x.addr); if (p && ids[x.sheet] != null)
+        hf.setCellContents({ sheet: ids[x.sheet], row: p.r - 1, col: p.c - 1 }, [[x.value == null || x.value === '' ? null : typeof x.value === 'string' ? "'" + x.value : x.value]]); } });
+    },
+    /** computed value for one cell; falls back to the file's cached value where the engine lacks a function */
+    value(sheet, cell) {
+      const v = hf.getCellValue({ sheet: ids[sheet], row: cell.r - 1, col: cell.c - 1 });
+      if (isErr(v)) return /NAME|ERROR/.test(v.type) && cell.formula ? cell.value : v.value;
+      if (v == null && cell.formula) return 0;
+      return v;
+    },
+    values(sheet) {
+      const e = book.cache.get(sheet), out = new Map(); if (!e) return out;
+      for (const cell of e.model.cells.values()) if (cell.formula) out.set(addrOf(cell.r, cell.c), this.value(sheet, cell));
+      return out;
+    },
+    /** write computed results into each formula cell's cached <v>, so every viewer shows the new values */
+    writeCache() {
+      for (const e of entries) {
+        for (const c of desc(e.doc.documentElement, 'c')) {
+          const f = kid(c, 'f'); if (!f) continue;
+          const p = parseAddr(at(c, 'r')); if (!p) continue;
+          const cell = e.model.cells.get(addrOf(p.r, p.c)); if (!cell) continue;
+          const raw = hf.getCellValue({ sheet: ids[e.meta.name], row: p.r - 1, col: p.c - 1 });
+          if (isErr(raw) && /NAME|ERROR/.test(raw.type)) continue; // unsupported here: keep Excel's cached value
+          const v = isErr(raw) ? raw.value : raw == null ? 0 : raw;
+          kids(c, 'v').forEach(x => c.removeChild(x)); kids(c, 'is').forEach(x => c.removeChild(x));
+          const ve = mk(e.doc, c, 'v');
+          if (isErr(raw)) { c.setAttribute('t', 'e'); ve.textContent = v; }
+          else if (typeof v === 'number') { c.removeAttribute('t'); ve.textContent = String(v); }
+          else if (typeof v === 'boolean') { c.setAttribute('t', 'b'); ve.textContent = v ? '1' : '0'; }
+          else { c.setAttribute('t', 'str'); ve.textContent = String(v); }
+          f.after(ve);
+          book.dirty.add(e.meta.name);
+        }
+      }
+    },
+  };
+  return calc;
+}
+
+/* ---------- data-validation dropdown lists ---------- */
+async function listOptions(book, sheetName, addr) {
+  const { model } = await loadSheet(book, sheetName); const p = parseAddr(addr); if (!p) return null;
+  const dv = model.validations.find(v => v.ranges.some(g => p.r >= g.r1 && p.r <= g.r2 && p.c >= g.c1 && p.c <= g.c2));
+  if (!dv) return null;
+  let f = dv.formula.replace(/^=/, '');
+  if (/^".*"$/.test(f)) return [...new Set(f.slice(1, -1).split(',').map(x => x.trim()).filter(Boolean))];
+  const named = desc(book.wbDoc, 'definedName').find(d => at(d, 'name') === f); if (named) f = named.textContent;
+  return rangeValues(book, f, sheetName);
+}
+async function rangeValues(book, f, sheetName) {
+  const m = /^(?:'((?:[^']|'')+)'|([^!]+))!(.+)$/.exec(f);
+  const target = m ? (m[1] || m[2]).replace(/''/g, "'") : sheetName, rng = parseRange((m ? m[3] : f).replace(/\$/g, ''));
+  if (!rng || !book.sheets.some(s => s.name === target)) return null;
+  const { model: tm } = await loadSheet(book, target); const out = [];
+  for (let r = rng.r1; r <= Math.min(rng.r2, rng.r1 + 500); r++) for (let c = rng.c1; c <= rng.c2; c++) {
+    const cell = tm.cells.get(addrOf(r, c)); const t = cell ? formatValue(book, cell).trim() : ''; if (t) out.push(t);
+  }
+  return [...new Set(out)];
+}
+
 /* ---------- PDF ---------- */
 async function renderPdf(book, sheetNames, escape) {
   const { jsPDF } = window.jspdf;
@@ -397,7 +638,9 @@ async function renderPdf(book, sheetNames, escape) {
       const [pw, ph] = model.landscape ? [297, 210] : [210, 297], mg = model.margins;
       const availW = pw - mg.l - mg.r, availH = ph - mg.t - mg.b;
       const tw = table.offsetWidth, th = table.offsetHeight;
-      const scale = Math.min(1, availW / (tw * PX_MM));
+      let scale = Math.min(model.scale || 1, availW / (tw * PX_MM));
+      if (model.fit) { const w = availW / (tw * PX_MM), h = availH / (th * PX_MM);
+        scale = model.fit.h === 1 && model.fit.w <= 1 ? Math.min(w, h) : model.fit.w === 0 ? Math.min(1, h) : w; }
       const canvas = await html2canvas(table, { scale: RES, backgroundColor: '#ffffff', logging: false, useCORS: false });
       const k = canvas.width / tw;
       const bounds = [...table.rows].map(tr => tr.offsetTop + tr.offsetHeight);
@@ -407,6 +650,7 @@ async function renderPdf(book, sheetNames, escape) {
         const limit = start + pageHpx;
         let end = Math.max(...bounds.filter(b => b > start + 1 && b <= limit + 0.5), 0);
         if (!end) end = Math.min(limit, th);
+        if (th - end < 8) end = th; // trailing border pixels belong to the last page
         const pxPerMm = RES / PX_MM;
         const page = document.createElement('canvas');
         page.width = Math.round(pw * pxPerMm); page.height = Math.round(ph * pxPerMm);
@@ -428,4 +672,4 @@ async function renderPdf(book, sheetNames, escape) {
   return { bytes: new Uint8Array(pdf.output('arraybuffer')), pages };
 }
 
-window.XL = { colLetters, parseAddr, normAddr, addrOf, openBook, loadSheet, sheetHTML, printRange, mergeAt, writeCell, saveBook, renderPdf, formatValue };
+window.XL = { buildCalc, listOptions, rangeValues, colLetters, parseAddr, normAddr, addrOf, openBook, loadSheet, sheetHTML, printRange, mergeAt, writeCell, saveBook, renderPdf, formatValue };

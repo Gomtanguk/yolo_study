@@ -2,7 +2,7 @@ import base64, pathlib
 root = pathlib.Path(__file__).resolve().parent
 src = root / 'src'
 css = (src / 'base.css').read_text() + '\n' + (src / 'extra.css').read_text()
-sample = base64.b64encode((src / 'sample_request.xlsx').read_bytes()).decode()
+sample = base64.b64encode((src / 'travel_sample.xlsx').read_bytes()).decode()
 js = f"const SAMPLE_XLSX_B64 = '{sample}';\n" + (src / 'engine.js').read_text() + '\n' + (src / 'app.js').read_text()
 assert '</script' not in js.lower()
 html = f'''<!DOCTYPE html>
@@ -15,6 +15,7 @@ html = f'''<!DOCTYPE html>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hyperformula@2.7.1/dist/hyperformula.full.min.js"></script>
 </head><body><div id="app"></div>
 <script>
 {js}

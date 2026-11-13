@@ -96,22 +96,58 @@ async function createTemplate(name, filename, bytes, fields = [], attachments = 
   await store.put(t); books.set(id, book);
   return t;
 }
+const SAMPLE_VERSION = 2;
+const SAMPLE_FIELDS = [
+  // [key, label, type, required, cell, placeholder, optionsFrom]
+  ['traveler', '출장자 성명', 'select', true, 'D6', '', "'사번'!$A$2:$A$34"],
+  ['project', '과제명 (비고)', 'select', true, 'P6', '', 'dv'],
+  ['trip_name', '출장명', 'text', true, 'F8', '예: OO 전시회 참관 및 미팅'],
+  ['place1', '방문처 1', 'text', true, 'E11', '예: 코엑스'],
+  ['region1', '출장지 1 (지역/주소)', 'text', true, 'H11', '예: 서울특별시 강남구 영동대로 513'],
+  ['region2', '출장지 2 (지역/주소)', 'text', false, 'H12', '경유지가 있으면 입력'],
+  ['start_date', '출장 시작일', 'date', true, 'D15'],
+  ['start_time', '시작 시간', 'select', true, 'I15', '', 'dv'],
+  ['end_date', '출장 종료일', 'date', true, 'L15'],
+  ['end_time', '종료 시간', 'select', true, 'Q15', '', 'dv'],
+  ['meals_provided', '식사 제공 횟수 (회의비/타 기관)', 'number', false, 'Q16', '0'],
+  ['perdiem_region', '일비 산정 지역', 'select', true, 'W9', '', 'dv'],
+  ['perdiem_end', '일비 산정 종료일', 'date', true, 'AC9', '보통 출장 종료일과 같음'],
+  ['lodging_region', '숙박 지역', 'select', false, 'W19', '', "'출장지역 및 비용한도'!$I$5:$I$16"],
+  ['lodging_amount', '숙박 결제금액 (원)', 'number', false, 'AA19', '60000'],
+  ['lodging_nights', '숙박 일수', 'number', false, 'AM19', '1'],
+  ['lodging_pay', '숙박 결제방법', 'select', false, 'AK19', '', 'dv'],
+  ['lodging_note', '숙박 비고 (호텔명)', 'text', false, 'AN19', '예: OO호텔'],
+  ['etc1_desc', '기타경비 1 내용', 'text', false, 'W28', '예: KTX요금 (동대구 → 서울)'],
+  ['etc1_account', '기타경비 1 계정', 'select', false, 'AB28', '', 'dv'],
+  ['etc1_amount', '기타경비 1 금액 (원)', 'number', false, 'AE28', '36000'],
+  ['etc1_pay', '기타경비 1 결제방법', 'select', false, 'AK28', '', 'dv'],
+  ['etc2_desc', '기타경비 2 내용', 'text', false, 'W29', '예: KTX요금 (서울 → 동대구)'],
+  ['etc2_account', '기타경비 2 계정', 'select', false, 'AB29', '', 'dv'],
+  ['etc2_amount', '기타경비 2 금액 (원)', 'number', false, 'AE29', '36000'],
+  ['etc2_pay', '기타경비 2 결제방법', 'select', false, 'AK29', '', 'dv'],
+  ['remarks', '특이사항', 'textarea', false, 'H42', '특이사항이 있으면 입력'],
+];
 async function seedSample() {
   const profile = await store.getProfile();
-  if (profile.seeded) return;
-  if (!(await store.list()).length) {
-    await createTemplate('샘플 구매 신청서', 'sample_request.xlsx', fromB64(SAMPLE_XLSX_B64), [
-      { key: 'applicant', label: '신청자', type: 'text', required: true, sheet: '신청서', cell: 'B7', placeholder: '홍길동', options: [] },
-      { key: 'request_date', label: '신청일', type: 'date', required: true, sheet: '신청서', cell: 'F7', placeholder: '', options: [] },
-      { key: 'company', label: '회사명', type: 'text', required: true, sheet: '신청서', cell: 'B9', placeholder: '회사명을 입력하세요', options: [] },
-      { key: 'phone', label: '연락처', type: 'text', required: true, sheet: '신청서', cell: 'B11', placeholder: '010-0000-0000', options: [] },
-      { key: 'purpose', label: '요청 내용', type: 'textarea', required: true, sheet: '신청서', cell: 'B14', placeholder: '', options: [] },
-    ], [
-      { title: '견적서 1부', note: '품목 및 금액이 기재된 견적서' },
-      { title: '사업자등록증 사본 1부', note: '제출 대상인 경우 준비' },
-    ]);
+  if ((profile.sampleVersion || (profile.seeded ? 1 : 0)) >= SAMPLE_VERSION) return;
+  // retire the old built-in sample (구매 신청서) if it is still there
+  for (const t of await store.list()) if (t.sample || (t.filename === 'sample_request.xlsx' && t.name === '샘플 구매 신청서')) await store.remove(t);
+  const bytes = fromB64(SAMPLE_XLSX_B64), book = await XL.openBook(bytes), sheet = '여비산출(국내)';
+  const fields = [];
+  for (const [key, label, type, required, cell, placeholder = '', from] of SAMPLE_FIELDS) {
+    let options = [];
+    if (from === 'dv') options = await XL.listOptions(book, sheet, cell) || [];
+    else if (from) options = await XL.rangeValues(book, from, sheet) || [];
+    fields.push({ key, label, type: type === 'select' && !options.length ? 'text' : type, required, sheet, cell, placeholder, options });
   }
-  await store.setProfile({ ...profile, seeded: true });
+  const t = await createTemplate('출장비 정산서 (국내)', '출장비_정산서_샘플.xlsx', bytes, fields, [
+    { title: '교통비 영수증 (KTX·항공권 등)', note: '결제 내역이 보이는 영수증 또는 e-티켓' },
+    { title: '숙박 영수증', note: '숙박한 경우 호텔 결제 영수증' },
+    { title: '출장 결과 보고서', note: '회사 양식으로 작성' },
+  ]);
+  t.sample = SAMPLE_VERSION; t.printSheets = ['지결 양식(국내)', '여비산출(국내)'];
+  await store.put(t);
+  await store.setProfile({ ...profile, seeded: true, sampleVersion: SAMPLE_VERSION });
 }
 
 async function validateMapping(fields, book) {
@@ -134,7 +170,7 @@ async function validateMapping(fields, book) {
 function convertValue(f, value) {
   if (value == null || value === '' || (f.type === 'checkbox' && value === false && !f.required)) {
     if (f.required && f.type !== 'checkbox') fail(`'${f.label}' 항목은 필수입니다.`);
-    if (f.type !== 'checkbox') return null;
+    if (f.type !== 'checkbox') return { kind: 'clear' };
   }
   if (f.type === 'checkbox') { if (f.required && !value) fail(`'${f.label}' 항목을 확인해야 합니다.`); return { kind: 's', text: value ? '예' : '아니오' }; }
   if (f.type === 'date') {
@@ -147,28 +183,38 @@ function convertValue(f, value) {
   if (f.type === 'select' && !f.options.includes(text)) fail(`'${f.label}' 값이 선택지에 없습니다.`);
   return { kind: 's', text };
 }
+function printSheetsOf(t, book) {
+  const visible = book.sheets.filter(s => s.state === 'visible').map(s => s.name);
+  const chosen = (t.printSheets || []).filter(n => visible.includes(n));
+  return chosen.length ? chosen : visible;
+}
+const hfValue = v => v.kind === 'clear' ? null : v.kind === 's' ? v.text : v.num;
 async function generate(t, values) {
   if (!t.fields.length) fail('먼저 관리자 화면에서 입력 항목을 설정하세요.');
   const converted = t.fields.map(f => [f, convertValue(f, values[f.key])]);
-  state.busyText = '엑셀에 값을 기록하는 중...'; render();
+  state.busyText = '엑셀에 값을 기록하고 수식을 다시 계산하는 중...'; render();
   const book = await XL.openBook(await store.getFile(t)); // fresh, mutable copy
-  for (const [f, v] of converted) { if (!v) continue; XL.writeCell(book, await XL.loadSheet(book, f.sheet), XL.normAddr(f.cell), v); }
+  const calc = await XL.buildCalc(book);
+  for (const [f, v] of converted) XL.writeCell(book, await XL.loadSheet(book, f.sheet), XL.normAddr(f.cell), v);
+  calc.set(converted.map(([f, v]) => ({ sheet: f.sheet, addr: XL.normAddr(f.cell), value: hfValue(v) })));
+  calc.writeCache();
   const out = await XL.saveBook(book);
   state.busyText = 'PDF를 만드는 중...'; render();
   const filled = await XL.openBook(out);
-  const sheetNames = filled.sheets.filter(s => s.state === 'visible').map(s => s.name);
-  const pdf = await XL.renderPdf(filled, sheetNames, esc);
+  const pdf = await XL.renderPdf(filled, printSheetsOf(t, filled), esc);
   return { template_name: t.name, attachments: t.attachments, xlsx: out, pdf: pdf.bytes, pages: pdf.pages };
 }
-function previewOverrides(t, values) {
-  const map = new Map();
-  for (const f of t.fields) {
-    const v = values[f.key]; const a = XL.normAddr(f.cell); if (!a) continue;
-    if (f.type === 'checkbox') { if (v || f.required) map.set(f.sheet + '!' + a, v ? '예' : '아니오'); continue; }
-    if (v == null || v === '') continue;
-    map.set(f.sheet + '!' + a, String(v));
-  }
-  return map;
+/** lenient conversion for the live preview (never throws) */
+function previewInputs(t, values) {
+  return t.fields.map(f => {
+    const raw = values[f.key]; let value = null;
+    if (f.type === 'checkbox') value = raw ? '예' : '아니오';
+    else if (raw == null || raw === '') value = null;
+    else if (f.type === 'number') { const n = Number(raw); value = isFinite(n) ? n : String(raw); }
+    else if (f.type === 'date') { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw); value = m ? Math.round((Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(1899, 11, 30)) / 86400000) : String(raw); }
+    else value = String(raw);
+    return { sheet: f.sheet, addr: XL.normAddr(f.cell), value, filled: raw != null && raw !== '' && raw !== false };
+  }).filter(x => x.addr);
 }
 
 /* ---------- views ---------- */
@@ -203,7 +249,7 @@ function dashboard() {
 <div class="metric"><div class="metric-top"><span>시스템 상태</span>✓</div><strong class="metric-text">${store.mode === 'db' ? '준비 완료' : '임시 모드'}</strong><p>${store.mode === 'db' ? 'Excel → PDF 변환 가능 · 계정에 저장' : 'Excel → PDF 변환 가능 · 저장되지 않음'}</p></div></div>
 <div class="section-heading"><div><h2>내 양식</h2><p>양식을 선택해 작성하거나 매핑 설정을 편집하세요.</p></div><div class="search-box">⌕ <input data-input="search" placeholder="양식 검색..." value="${esc(state.search)}"></div></div>
 <div class="template-grid">${cards}<button class="add-template-card" data-act="upload-open"><span class="add-card-icon">+</span><b>새 양식 추가</b><span>Excel 파일을 가져와 입력 항목을 설정해요</span></button></div>
-${list.length ? `<div class="info-banner"><div class="info-banner-icon">ⓘ</div><div><strong>샘플로 먼저 테스트해보세요</strong><p>매핑 설정에서 셀 연결을 확인한 다음 서류 작성을 눌러 PDF 생성까지 테스트하세요. 모든 변환은 이 브라우저 안에서 처리됩니다.</p></div><button data-act="edit" data-id="${list[list.length - 1].id}">시작하기 →</button></div>` : ''}`;
+${list.length ? `<div class="info-banner"><div class="info-banner-icon">ⓘ</div><div><strong>샘플(출장비 정산서)로 먼저 테스트해보세요</strong><p>필요한 항목만 입력하면 여비 산출 내역서의 수식이 다시 계산되고, 지출결의 양식까지 채워진 PDF가 만들어집니다. 모든 처리는 이 브라우저 안에서 이뤄집니다.</p></div><button data-act="edit" data-id="${list[list.length - 1].id}">시작하기 →</button></div>` : ''}`;
 }
 function fieldOption(type) { return TYPES.map((t, i) => `<option value="${t}" ${type === t ? 'selected' : ''}>${['한 줄 텍스트', '긴 텍스트', '숫자', '날짜', '선택 목록', '체크박스'][i]}</option>`).join(''); }
 function gridView(d, f) {
@@ -224,6 +270,7 @@ function editor() {
 <div class="editor-grid"><div class="editor-left">
 <section class="panel editor-general"><div class="panel-title"><span class="section-icon">▤</span><div><h3>기본 정보</h3><p>등록한 양식의 이름과 형식</p></div></div><label class="input-label">양식 이름</label><input class="form-input" data-prop="name" value="${esc(d.name)}" maxlength="150"><label class="input-label">원본 파일</label><div class="file-row">▤ ${esc(d.filename)} · ${(d.size / 1024).toFixed(1)}KB</div></section>
 <section class="panel fields-panel"><div class="panel-title spaced"><span class="section-icon">⌖</span><div><h3>입력 항목 <span class="count-badge">${d.fields.length}</span></h3><p>선택 후 시트 미리보기에서 연결</p></div><button class="icon-btn" data-act="add-field">+</button></div><div class="field-list">${cards}</div><button class="add-field" data-act="add-field">+ 입력 항목 추가</button></section>
+<section class="panel"><div style="padding:23px"><div class="panel-title spaced"><span class="section-icon">⎙</span><div><h3>PDF 출력 시트</h3><p>선택한 시트만 순서대로 PDF에 포함됩니다.</p></div></div>${state.book.sheets.filter(s => s.state === 'visible').map(s => `<label class="check-toggle sheet-check"><input type="checkbox" data-print="${esc(s.name)}" ${(d.printSheets && d.printSheets.length ? d.printSheets.includes(s.name) : true) ? 'checked' : ''}> ${esc(s.name)}</label>`).join('')}</div></section>
 <section class="panel attachments-panel"><div class="panel-title spaced"><span class="section-icon">▤</span><div><h3>첨부서류 안내 <span class="count-badge">${d.attachments.length}</span></h3><p>최종 페이지에 목록만 표시</p></div></div>${d.attachments.map((a, i) => `<div class="attach-edit"><input data-attachment="${i}" data-part="title" value="${esc(a.title)}" placeholder="첨부서류명" maxlength="150"><input data-attachment="${i}" data-part="note" value="${esc(a.note)}" placeholder="안내 문구 (선택)"><button data-act="delete-attachment" data-index="${i}">×</button></div>`).join('')}<button class="add-field" data-act="add-attachment">+ 첨부서류 추가</button></section>
 </div><div class="editor-right"><section class="panel mapping-panel"><div class="panel-title spaced"><span class="section-icon teal">▤</span><div><h3>원본 시트 미리보기</h3><p>셀을 클릭하면 선택된 입력 항목에 연결됩니다. 병합 셀은 자동으로 왼쪽 위 셀이 선택돼요.</p></div><div class="sheet-selector"><select data-change="sheet">${sheets.map(s => `<option ${s === state.sheet ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div></div><div class="mapping-hint">⌖ 현재 연결할 항목: <b>${esc(f ? f.label : '입력 항목을 추가하세요')}</b> ${f && f.cell ? `<span class="current-cell">${esc(f.sheet)}!${esc(f.cell)}</span>` : ''}</div>${grid.html || grid}<div class="sheet-footnote">ⓘ 원본 서식으로 표시 · ${grid.range ? `${grid.range.r2}행 × ${XL.colLetters(grid.range.c2)}열까지` : ''} · 더 먼 셀은 아래에서 직접 주소 입력</div></section>
 ${f ? `<section class="panel inspector"><div class="panel-title spaced"><span class="section-icon">⚙</span><div><h3>선택한 항목 설정</h3><p>입력 형식과 연결 위치를 조정하세요.</p></div><button class="icon-btn danger" data-act="remove-field" title="항목 삭제">×</button></div><div class="inspector-form"><div class="form-group"><label>사용자에게 보일 항목명</label><input class="form-input" data-field="label" value="${esc(f.label)}" maxlength="100"></div><div class="form-group"><label>데이터 키 (영문, 중복 불가)</label><input class="form-input mono" data-field="key" value="${esc(f.key)}" maxlength="48"></div><div class="form-group"><label>입력 형식</label><select class="form-input" data-field="type">${fieldOption(f.type)}</select></div><div class="form-group"><label>시트</label><select class="form-input" data-field="sheet">${sheets.map(s => `<option ${s === f.sheet ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div><div class="form-group"><label>셀 주소</label><input class="form-input mono" data-field="cell" value="${esc(f.cell)}" placeholder="예: B7"></div><div class="form-group"><label>입력 도움말</label><input class="form-input" data-field="placeholder" value="${esc(f.placeholder)}"></div>${f.type === 'select' ? `<div class="form-group full"><label>선택 옵션 (쉼표로 구분)</label><input class="form-input" data-field="options" value="${esc(f.options.join(', '))}"></div>` : ''}<label class="check-toggle"><input type="checkbox" data-field="required" ${f.required ? 'checked' : ''}> 필수 입력 항목</label></div></section>` : ''}
@@ -231,13 +278,21 @@ ${f ? `<section class="panel inspector"><div class="panel-title spaced"><span cl
 }
 function fillPreview() {
   const t = state.active; if (!t || !state.book) return '';
-  const ov = previewOverrides(t, state.values);
-  const sheets = [...new Set(t.fields.map(f => f.sheet))];
-  return sheets.map(name => {
+  const inputs = previewInputs(t, state.values);
+  if (state.calc) { try { state.calc.set(inputs); } catch (e) { console.warn(e); } }
+  return printSheetsOf(t, state.book).map(name => {
     const entry = state.book.cache.get(name); if (!entry) return '';
-    const overrides = new Map([...ov].filter(([k]) => k.startsWith(name + '!')).map(([k, v]) => [k.slice(name.length + 1), v]));
-    return `<div class="paper-label">${esc(name)}</div><div class="paper">${XL.sheetHTML(state.book, entry.model, { range: XL.printRange(state.book, name, entry.model), grid: false, overrides, escape: esc })}</div>`;
+    const values = state.calc ? state.calc.values(name) : new Map();
+    const highlight = new Set();
+    for (const x of inputs) if (x.sheet === name) { values.set(x.addr, x.value); if (x.filled) highlight.add(x.addr); }
+    return `<div class="paper-label">${esc(name)}</div><div class="paper"><div class="paper-fit">${XL.sheetHTML(state.book, entry.model, { range: XL.printRange(state.book, name, entry.model), grid: false, values, highlight, escape: esc })}</div></div>`;
   }).join('');
+}
+function fitPapers() {
+  document.querySelectorAll('.paper-fit').forEach(box => {
+    const table = box.firstElementChild; if (!table) return; box.style.zoom = '';
+    const w = box.parentElement.clientWidth - 40, k = Math.min(1, w / table.offsetWidth); if (k < 1) box.style.zoom = k.toFixed(3);
+  });
 }
 function fill() {
   const t = state.active; if (!t) return '';
@@ -265,6 +320,7 @@ function render() {
   const scroll = document.querySelector('.sheet-scroll'); const pos = scroll ? [scroll.scrollLeft, scroll.scrollTop] : null;
   document.getElementById('app').innerHTML = layout(views[state.page]());
   const next = document.querySelector('.sheet-scroll'); if (pos && next) [next.scrollLeft, next.scrollTop] = pos;
+  fitPapers();
 }
 
 /* ---------- navigation ---------- */
@@ -280,13 +336,16 @@ async function openFill(id) {
   const t = findT(id);
   if (!t.fields.length) { await openEditor(id); fail('입력 항목이 없습니다. 매핑을 먼저 등록하세요.'); }
   const book = await bookFor(t);
-  for (const s of new Set(t.fields.map(f => f.sheet))) if (book.sheets.some(x => x.name === s)) await XL.loadSheet(book, s);
+  for (const s of new Set([...t.fields.map(f => f.sheet), ...printSheetsOf(t, book)])) if (book.sheets.some(x => x.name === s)) await XL.loadSheet(book, s);
+  state.calc = null;
+  try { state.calc = await XL.buildCalc(book); } catch (e) { console.warn('calc unavailable', e); }
   state.active = t; state.book = book; state.values = {}; state.page = 'fill';
 }
 async function save() {
   const d = state.draft; const name = d.name.trim(); if (!name) fail('양식 이름을 입력하세요.');
   const fields = clone(d.fields); await validateMapping(fields, state.book);
-  const updated = { ...clone(state.active), name, fields, attachments: d.attachments.filter(x => x.title.trim()).map(x => ({ title: x.title.trim().slice(0, 150), note: x.note.trim() })), updated_at: nowIso() };
+  if (d.printSheets && !d.printSheets.length) fail('PDF에 포함할 시트를 1개 이상 선택하세요.');
+  const updated = { ...clone(state.active), name, fields, printSheets: d.printSheets || null, attachments: d.attachments.filter(x => x.title.trim()).map(x => ({ title: x.title.trim().slice(0, 150), note: x.note.trim() })), updated_at: nowIso() };
   await store.put(updated); await refresh();
   state.active = findT(updated.id); state.draft = clone(state.active); state.dirty = false;
   state.success = '설정 저장 완료! 작성 테스트를 진행할 수 있어요.';
@@ -332,7 +391,12 @@ async function onAction(act, el) {
       if (f.sheet && f.sheet !== state.sheet && state.book.sheets.some(s => s.name === f.sheet)) await run(async () => { await XL.loadSheet(state.book, f.sheet); state.sheet = f.sheet; });
       else render(); break; }
     case 'cell': { const f = state.draft.fields[state.selected]; if (!f) { state.error = '먼저 입력 항목을 추가하세요.'; render(); return; }
-      f.sheet = state.sheet; f.cell = el.dataset.cell; state.dirty = true; state.error = ''; render(); break; }
+      f.sheet = state.sheet; f.cell = el.dataset.cell; state.dirty = true; state.error = ''; state.success = '';
+      try {
+        const opts = await XL.listOptions(state.book, f.sheet, f.cell);
+        if (opts && opts.length && (f.type === 'text' || f.type === 'select')) { f.type = 'select'; f.options = opts; state.success = `이 셀의 드롭다운 목록(${opts.length}개)을 선택 옵션으로 가져왔어요.`; }
+      } catch (e) { console.warn(e); }
+      render(); break; }
     case 'save': await run(save); break;
     case 'test': if (state.dirty) { state.error = '저장하지 않은 변경사항이 있습니다. 먼저 설정을 저장하세요.'; state.success = ''; render(); } else await run(() => openFill(state.draft.id)); break;
     case 'add-attachment': state.draft.attachments.push({ title: '', note: '' }); state.dirty = true; render(); break;
@@ -358,7 +422,7 @@ function updateFillLive(form) {
   state.values = readForm(form);
   clearTimeout(previewTimer);
   previewTimer = setTimeout(() => {
-    const box = document.getElementById('live-preview'); if (box) box.innerHTML = fillPreview();
+    const box = document.getElementById('live-preview'); if (box) { box.innerHTML = fillPreview(); fitPapers(); }
     const t = state.active, done = t.fields.filter(f => f.type === 'checkbox' ? state.values[f.key] : state.values[f.key]).length;
     const bar = document.querySelector('.progress-bar span'); if (bar) bar.style.width = Math.round(done / Math.max(1, t.fields.length) * 100) + '%';
     const stat = document.querySelectorAll('.helper-stat b')[2]; if (stat) stat.textContent = done + '개';
@@ -374,6 +438,12 @@ document.addEventListener('input', e => {
     const f = state.draft.fields[state.selected], p = el.dataset.field;
     if (p === 'required') f.required = el.checked; else if (p === 'options') f.options = el.value.split(',').map(s => s.trim()).filter(Boolean); else f[p] = el.value;
     state.dirty = true; return;
+  }
+  if (el.dataset.print != null && state.draft) {
+    const all = state.book.sheets.filter(s => s.state === 'visible').map(s => s.name);
+    const cur = new Set(state.draft.printSheets && state.draft.printSheets.length ? state.draft.printSheets : all);
+    if (el.checked) cur.add(el.dataset.print); else cur.delete(el.dataset.print);
+    state.draft.printSheets = all.filter(n => cur.has(n)); state.dirty = true; return;
   }
   if (el.dataset.attachment != null && state.draft) { state.draft.attachments[+el.dataset.attachment][el.dataset.part] = el.value; state.dirty = true; }
 });

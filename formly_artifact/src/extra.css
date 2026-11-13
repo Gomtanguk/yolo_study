@@ -33,3 +33,7 @@
 .pages img{width:100%;max-width:560px;box-shadow:0 6px 24px #1c33461f;background:#fff;display:block}
 .pages img.land{max-width:760px}
 @media(max-width:620px){.pages{padding:12px;max-height:520px}.helper-panel{position:static}}
+.sheet-check{padding:7px 0;display:flex}
+.paper-fit{width:max-content}
+.xl td.ov{overflow:visible}
+.xl .xc.spill{position:relative;z-index:1;overflow:hidden}
