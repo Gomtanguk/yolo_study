@@ -1,0 +1,35 @@
+:root{font-family:'Noto Sans KR',system-ui,sans-serif}
+.brand-icon{font-weight:900;font-size:22px}.side-link{font-size:12px}.metric{text-align:left}.field-item,.add-field{cursor:pointer}.add-field{background:#fff}
+.inspector-form{grid-template-columns:1fr 1fr}.form-group.full{grid-column:1/-1}.modal input{width:100%}.upload-drop{cursor:pointer}
+.helper-panel{position:sticky;top:24px}.checkbox-user{font-weight:500!important}.sheet-scroll{max-height:560px}
+.link-btn{border:0;background:none;display:flex;gap:7px;align-items:center;color:#2b9783;font-weight:800;font-size:10px;padding:0}
+.link-btn:disabled{color:#a8b5bf}
+.busy-toast{position:fixed;right:24px;bottom:24px;z-index:30;background:#173548;color:#fff;font-size:12px;font-weight:700;padding:13px 17px;border-radius:10px;box-shadow:0 10px 30px #06182744;display:flex;gap:9px;align-items:center}
+.spin{display:inline-block}
+/* Excel replica */
+.xl{border-collapse:collapse;table-layout:fixed;background:#fff;color:#000}
+.xl td{padding:0 3px;overflow:hidden;line-height:1.25;position:relative}
+.xl td .xc{overflow:hidden;white-space:pre}
+.xl td .xc.wrap{white-space:pre-wrap;overflow-wrap:anywhere}
+.xl tr.xl-hidden td,.xl tr.xl-hidden th{padding:0;border:0!important;font-size:0}
+.xl.grid td{border:1px solid #e6eaee;cursor:crosshair}
+.xl.grid td:hover{outline:2px solid #46b9a4;outline-offset:-2px;z-index:1}
+.xl.grid td.mapped{box-shadow:inset 0 0 0 999px rgba(46,172,158,.16);outline:1px solid #8fd8c8;outline-offset:-1px}
+.xl.grid td.active{box-shadow:inset 0 0 0 999px rgba(46,172,158,.32);outline:2px solid #1f9e8c;outline-offset:-2px;z-index:1}
+.xl th{background:#f2f6f8;color:#7b8b98;font-size:10px;font-weight:800;border:1px solid #dfe6eb;position:sticky;top:0;z-index:3;height:24px;font-family:'Noto Sans KR',sans-serif}
+.xl thead th{box-shadow:0 -3px 0 #f2f6f8,0 1px 0 #dfe6eb}
+.xl th.xl-rh{left:0;z-index:2;text-align:center}
+.xl th.xl-corner{left:0;z-index:4}
+.xl .cell-dot{z-index:2}
+.xl.print td.filled{box-shadow:inset 0 0 0 999px rgba(46,172,158,.10)}
+.print-host{position:absolute;left:0;top:0;z-index:-1;background:#fff;pointer-events:none}
+.print-host .xl td.filled{box-shadow:none}
+/* fill preview + result pages */
+.live-preview{padding:23px;margin-top:20px}
+.live-preview .panel-title{margin-bottom:16px}
+.paper-label{font-size:10px;font-weight:800;color:#7b8b98;letter-spacing:.8px;margin:6px 0 8px}
+.paper{background:#fff;border:1px solid #e3e9ee;border-radius:8px;padding:20px;overflow:auto;box-shadow:inset 0 0 0 1px #f4f7f9}
+.pages{background:#e7ecf0;padding:24px;display:flex;flex-direction:column;align-items:center;gap:18px;max-height:720px;overflow:auto}
+.pages img{width:100%;max-width:560px;box-shadow:0 6px 24px #1c33461f;background:#fff;display:block}
+.pages img.land{max-width:760px}
+@media(max-width:620px){.pages{padding:12px;max-height:520px}.helper-panel{position:static}}
