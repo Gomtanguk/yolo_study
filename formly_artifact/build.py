@@ -1,8 +1,10 @@
-import base64, pathlib
+import base64, pathlib, sys
 root = pathlib.Path(__file__).resolve().parent
 src = root / 'src'
 css = (src / 'base.css').read_text() + '\n' + (src / 'extra.css').read_text()
-sample = base64.b64encode((src / 'travel_sample.xlsx').read_bytes()).decode()
+# Sample workbook path is passed in (kept outside the repo: it contains real staff data).
+sample_path = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else src / 'travel_sample.xlsx'
+sample = base64.b64encode(sample_path.read_bytes()).decode()
 js = f"const SAMPLE_XLSX_B64 = '{sample}';\n" + (src / 'engine.js').read_text() + '\n' + (src / 'app.js').read_text()
 assert '</script' not in js.lower()
 html = f'''<!DOCTYPE html>

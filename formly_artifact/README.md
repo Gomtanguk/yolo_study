@@ -10,4 +10,4 @@
 | FileResponse 다운로드 | `downloads` capability |
 
 - 소스: `src/engine.js`(엑셀 엔진), `src/app.js`(UI, 원본 web/app.js 포팅), `src/base.css`(원본 CSS), `src/extra.css`
-- 빌드: `python3 build.py` → `index.html` (샘플 xlsx 내장)
+- 빌드: `python3 build.py <샘플.xlsx>` → `index.html` (샘플 xlsx 내장). 출장비 정산 샘플은 실명·사번이 있어 저장소에 넣지 않습니다.
