@@ -453,6 +453,19 @@ function printRange(book, name, model) {
   return book.printAreas[name] || { r1: 1, c1: 1, r2: Math.max(1, model.maxR), c2: Math.max(1, model.maxC) };
 }
 
+/** After the table is in the DOM: shrink text that overflows its cell (up to 30%), like Excel's shrink-to-fit.
+ *  Our web font is slightly wider than Excel's Korean fonts, so labels that fit in Excel can wrap or clip here. */
+function fitText(root) {
+  for (const div of root.querySelectorAll('.xl td > .xc')) {
+    if (!div.textContent || div.classList.contains('spill')) continue;
+    const wrap = div.classList.contains('wrap');
+    const over = () => wrap ? div.scrollHeight > div.clientHeight + 1 : div.scrollWidth > div.clientWidth + 1;
+    if (!over()) continue;
+    const base = parseFloat(getComputedStyle(div).fontSize) || 14;
+    for (let k = 0.95; k >= 0.7 && over(); k -= 0.05) div.style.fontSize = (base * k).toFixed(2) + 'px';
+  }
+}
+
 /* ---------- writing values ---------- */
 function ensureDateStyle(book, s) {
   book.dateXf = book.dateXf || new Map();
@@ -634,6 +647,7 @@ async function renderPdf(book, sheetNames, escape) {
       const { model } = await loadSheet(book, name);
       if (!model.maxR && !book.printAreas[name]) continue;
       host.innerHTML = sheetHTML(book, model, { range: printRange(book, name, model), grid: false, escape });
+      fitText(host);
       const table = host.querySelector('table');
       const [pw, ph] = model.landscape ? [297, 210] : [210, 297], mg = model.margins;
       const availW = pw - mg.l - mg.r, availH = ph - mg.t - mg.b;
@@ -672,4 +686,4 @@ async function renderPdf(book, sheetNames, escape) {
   return { bytes: new Uint8Array(pdf.output('arraybuffer')), pages };
 }
 
-window.XL = { buildCalc, listOptions, rangeValues, colLetters, parseAddr, normAddr, addrOf, openBook, loadSheet, sheetHTML, printRange, mergeAt, writeCell, saveBook, renderPdf, formatValue };
+window.XL = { fitText, buildCalc, listOptions, rangeValues, colLetters, parseAddr, normAddr, addrOf, openBook, loadSheet, sheetHTML, printRange, mergeAt, writeCell, saveBook, renderPdf, formatValue };

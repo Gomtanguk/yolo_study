@@ -8,7 +8,7 @@
 .spin{display:inline-block}
 /* Excel replica */
 .xl{border-collapse:collapse;table-layout:fixed;background:#fff;color:#000}
-.xl td{padding:0 3px;overflow:hidden;line-height:1.25;position:relative}
+.xl td{padding:0 2px;overflow:hidden;line-height:1.25;position:relative}
 .xl td .xc{overflow:hidden;white-space:pre}
 .xl td .xc.wrap{white-space:pre-wrap;overflow-wrap:anywhere}
 .xl tr.xl-hidden td,.xl tr.xl-hidden th{padding:0;border:0!important;font-size:0}

@@ -321,6 +321,7 @@ function render() {
   document.getElementById('app').innerHTML = layout(views[state.page]());
   const next = document.querySelector('.sheet-scroll'); if (pos && next) [next.scrollLeft, next.scrollTop] = pos;
   fitPapers();
+  XL.fitText(document.getElementById('app'));
 }
 
 /* ---------- navigation ---------- */
@@ -422,7 +423,7 @@ function updateFillLive(form) {
   state.values = readForm(form);
   clearTimeout(previewTimer);
   previewTimer = setTimeout(() => {
-    const box = document.getElementById('live-preview'); if (box) { box.innerHTML = fillPreview(); fitPapers(); }
+    const box = document.getElementById('live-preview'); if (box) { box.innerHTML = fillPreview(); XL.fitText(box); fitPapers(); }
     const t = state.active, done = t.fields.filter(f => f.type === 'checkbox' ? state.values[f.key] : state.values[f.key]).length;
     const bar = document.querySelector('.progress-bar span'); if (bar) bar.style.width = Math.round(done / Math.max(1, t.fields.length) * 100) + '%';
     const stat = document.querySelectorAll('.helper-stat b')[2]; if (stat) stat.textContent = done + '개';
